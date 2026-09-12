@@ -1,0 +1,8 @@
+# Private local inventory: publish only the sanitized docs snapshot.
+/data/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+/pages-*/

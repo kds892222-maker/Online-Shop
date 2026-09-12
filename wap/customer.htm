@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>심심PC 판매 재고</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/css/customer.css">
+    <style>
+        .detail-image-area {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            overflow: hidden;
+            margin-bottom: 18px;
+            border-radius: 14px;
+            background: #f3f4f6;
+        }
+
+        .detail-image-area .product-image,
+        .detail-image-area .product-image-placeholder {
+            width: 100%;
+            height: 100%;
+        }
+
+        .detail-image-area .product-image {
+            display: block;
+            object-fit: cover;
+        }
+
+        .detail-close-floating {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 2;
+            background: rgba(255, 255, 255, 0.94);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        }
+
+        .warranty-banner {
+            margin-bottom: 18px;
+            padding: 16px 18px;
+            border: 1px solid #bbf7d0;
+            border-radius: 14px;
+            background: #f0fdf4;
+        }
+
+        .warranty-banner strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #166534;
+            font-size: 15px;
+        }
+
+        .warranty-banner p {
+            margin: 0;
+            color: #166534;
+            font-size: 14px;
+            line-height: 1.55;
+        }
+
+        .purchase-guide {
+            margin-top: 16px;
+            padding: 16px;
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            background: #f9fafb;
+        }
+
+        .purchase-guide strong {
+            display: block;
+            margin-bottom: 7px;
+            font-size: 15px;
+        }
+
+        .purchase-guide p {
+            margin: 0;
+            color: #374151;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .detail-warranty {
+            margin-top: 14px;
+            padding: 14px 16px;
+            border: 1px solid #bbf7d0;
+            border-radius: 14px;
+            background: #f0fdf4;
+        }
+
+        .detail-warranty strong {
+            display: block;
+            margin-bottom: 6px;
+            color: #166534;
+            font-size: 15px;
+        }
+
+        .detail-warranty p {
+            margin: 0;
+            color: #166534;
+            font-size: 14px;
+            line-height: 1.55;
+        }
+
+        .daangn-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 52px;
+            margin-top: 14px;
+            padding: 12px 16px;
+            border-radius: 12px;
+            background: #ff6f0f;
+            color: white;
+            font-size: 16px;
+            font-weight: 800;
+            text-decoration: none;
+        }
+
+        .daangn-button:hover {
+            background: #e85f00;
+        }
+
+        @media (max-width: 700px) {
+            .modal-panel {
+                padding-top: 16px;
+            }
+
+            .detail-image-area {
+                margin-bottom: 15px;
+                border-radius: 12px;
+            }
+
+            .warranty-banner {
+                margin-bottom: 14px;
+                padding: 14px 15px;
+            }
+
+            .daangn-button {
+                min-height: 56px;
+                font-size: 17px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<header class="customer-header">
+    <div>
+        <p class="brand-subtitle">심심PC</p>
+        <h1>판매 재고</h1>
+    </div>
+    <div id="customer-stock-count" class="stock-count">0개</div>
+</header>
+
+<main class="customer-main">
+    <section class="warranty-banner">
+        <strong>중고·리퍼 제품 / 1개월 환불 보증</strong>
+        <p>
+            이곳에서 판매하는 모든 제품은 중고·리퍼 제품입니다.<br>
+            구매일로부터 1개월 이내 제품 자체의 고장이 확인되면 100% 환불해드립니다.<br>
+            단, 구매자 과실로 인한 파손·침수·임의 수리·개조 등은 환불 대상에서 제외됩니다.
+        </p>
+    </section>
+
+    <section class="customer-tools">
+        <input
+            id="customer-search"
+            type="search"
+            placeholder="제품명 검색"
+            autocomplete="off"
+        >
+
+        <select id="customer-type-filter">
+            <option value="">전체 종류</option>
+            <option value="1">CPU</option>
+            <option value="2">GPU</option>
+            <option value="3">메인보드</option>
+            <option value="4">RAM</option>
+            <option value="5">SSD</option>
+            <option value="6">HDD</option>
+            <option value="7">파워</option>
+            <option value="8">팬</option>
+            <option value="9">케이스</option>
+            <option value="10">쿨러</option>
+            <option value="11">기타</option>
+        </select>
+    </section>
+
+    <section id="customer-list" class="product-grid"></section>
+
+    <div id="customer-empty" class="empty-state hidden">
+        판매 가능한 제품이 없습니다.
+    </div>
+</main>
+
+<div id="customer-detail-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-detail></div>
+
+    <section class="modal-panel" role="dialog" aria-modal="true">
+        <button
+            id="detail-close-button"
+            class="close-button detail-close-floating"
+            type="button"
+            aria-label="닫기"
+        >
+            ×
+        </button>
+
+        <div id="detail-image-area" class="detail-image-area"></div>
+
+        <div class="modal-header">
+            <div>
+                <p id="detail-type" class="detail-type"></p>
+                <h2 id="detail-name"></h2>
+            </div>
+        </div>
+
+        <div class="detail-price-area">
+            <span>판매가</span>
+            <strong id="detail-price">가격문의</strong>
+        </div>
+
+        <div class="detail-info">
+            <div>
+                <span>상태</span>
+                <strong id="detail-status">정상</strong>
+            </div>
+            <div>
+                <span>재고번호</span>
+                <strong id="detail-id">-</strong>
+            </div>
+        </div>
+
+        <div class="detail-warranty">
+            <strong>중고·리퍼 제품 / 1개월 환불 보증</strong>
+            <p>
+                본 제품은 중고·리퍼 제품입니다.<br>
+                구매일로부터 1개월 이내 제품 자체의 고장이 확인되면 100% 환불해드립니다.<br>
+                단, 구매자 과실로 인한 파손·침수·임의 수리·개조 등은 환불 대상에서 제외됩니다.
+            </p>
+        </div>
+
+        <div class="purchase-guide">
+            <strong>구매·결제 문의</strong>
+            <p>
+                안전을 위해 결제 및 거래는 당근에서 진행합니다.<br>
+                구매를 원하시면 전화 또는 문자 남겨주세요.
+            </p>
+
+            <a
+                class="daangn-button"
+                href="https://www.daangn.com/kr/local-profile/%EC%8B%AC%EC%8B%ACpc-awk2fr5ppt88/"
+                target="_blank"
+                rel="noopener noreferrer"
+            >
+                당근에서 문의하기
+            </a>
+        </div>
+
+        <p class="detail-note">
+            실제 재고 및 판매 여부는 문의 시점에 달라질 수 있습니다.
+        </p>
+    </section>
+</div>
+
+<script src="/js/customer.js"></script>
+</body>
+</html>

@@ -3,7 +3,7 @@
 관리자는 기존 FastAPI 앱을 로컬에서 실행합니다. `app.py`의 uvicorn host는
 `127.0.0.1`을 그대로 유지합니다.
 
-고객 사이트: https://rlaqjatjr8922.github.io/Inventory/
+고객 사이트: https://kds892222-maker.github.io/Online-Shop/
 
 GitHub Settings → Pages → Build and deployment에서
 **Deploy from a branch**, **main**, **/docs**를 선택합니다.

@@ -1,47 +1,28 @@
-﻿# Save outside C:\Online-Shop. Run with PowerShell.
+﻿# Upload the whole local project, respecting .gitignore.
+param([switch]$CheckOnly)
 $ErrorActionPreference = 'Stop'
-$source = 'C:\Online-Shop\docs'
+$source = 'C:\Online-Shop'
 $repo = 'https://github.com/kds892222-maker/Online-Shop.git'
-$mutex = [Threading.Mutex]::new($false, 'Local\OnlineShopDocsPublisher')
+$mutex = [Threading.Mutex]::new($false, 'Local\OnlineShopProjectPublisher')
 $locked = $false
 $job = $null
 
-function Check-Docs([string]$folder) {
-    foreach ($required in @('index.html', 'customer.js', 'style.css', 'products.json')) {
-        if (!(Test-Path -LiteralPath (Join-Path $folder $required) -PathType Leaf)) {
-            throw "Required file missing: $required"
-        }
-    }
-    $items = @(Get-Item -LiteralPath $folder -Force) + @(Get-ChildItem -LiteralPath $folder -Recurse -Force)
-    foreach ($item in $items) {
+function Copy-Project([string]$from, [string]$to) {
+    foreach ($item in Get-ChildItem -LiteralPath $from -Force) {
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw "Links are not allowed: $($item.FullName)"
+            throw "Links are not supported: $($item.FullName)"
         }
-        if ($item.Name -eq '.git') { throw 'Nested Git folder is not allowed.' }
-        if (!$item.PSIsContainer -and $item.Name -ne '.nojekyll' -and
-            $item.Extension.ToLowerInvariant() -notin @('.html','.css','.js','.json','.jpg','.jpeg','.png','.webp','.svg','.ico')) {
-            throw "Unexpected public file: $($item.Name)"
+        if ($item.Name -in @('.git','data','.venv','venv','__pycache__') -or
+            $item.Name -like '.env*' -or $item.Name -like 'pages-*' -or
+            $item.Name -match '\.py[cod]$') { continue }
+        $dest = Join-Path $to $item.Name
+        if ($item.PSIsContainer) {
+            New-Item -ItemType Directory -Path $dest -Force | Out-Null
+            Copy-Project $item.FullName $dest
+        } else {
+            Copy-Item -LiteralPath $item.FullName -Destination $dest -Force
         }
     }
-    $json = [IO.File]::ReadAllText((Join-Path $folder 'products.json'))
-    if (!$json.TrimStart().StartsWith('[')) { throw 'products.json must contain an array.' }
-    $products = @($json | ConvertFrom-Json)
-    $fields = @('이름','종류','목표판매가','이미지','재고번호')
-    foreach ($product in $products) {
-        if ($null -eq $product) { throw 'Invalid product entry.' }
-        foreach ($field in $product.PSObject.Properties.Name) {
-            if ($field -notin $fields) { throw "Unexpected product field: $field" }
-        }
-        foreach ($field in $fields) {
-            if ($field -notin $product.PSObject.Properties.Name) { throw "Missing product field: $field" }
-        }
-        $image = [string]$product.'이미지'
-        if ($image -notmatch '^uploads/[a-f0-9]{64}\.(jpg|jpeg|png|webp)$') { throw 'Invalid product image path.' }
-        $imageFile = Join-Path $folder $image
-        if (!(Test-Path -LiteralPath $imageFile -PathType Leaf)) { throw "Missing product image: $image" }
-        if ((Get-Item -LiteralPath $imageFile).Length -eq 0) { throw "Empty image: $image" }
-    }
-    return $products.Count
 }
 
 try {
@@ -49,65 +30,50 @@ try {
     catch [Threading.AbandonedMutexException] { $locked = $true }
     if (!$locked) { throw 'Another upload is already running.' }
     Get-Command git -ErrorAction Stop | Out-Null
-    if (!(Test-Path -LiteralPath $source -PathType Container)) { throw "Folder missing: $source" }
-    $count = Check-Docs $source
-
-    # Work on an isolated copy; never modify the original project.
-    $job = Join-Path ([IO.Path]::GetTempPath()) ('OnlineShopPublish-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $job | Out-Null
-    $snapshot = Join-Path $job 'snapshot'
-    Copy-Item -LiteralPath $source -Destination $snapshot -Recurse -Force
-    $count = Check-Docs $snapshot
-    if ($count -eq 0) {
-        if ((Read-Host 'No products. Type EMPTY to publish an empty inventory') -cne 'EMPTY') {
-            Write-Host 'Cancelled. Public inventory unchanged.'
-            return
-        }
+    if (!(Test-Path "$source\app.py" -PathType Leaf)) { throw "Project missing: $source" }
+    if ((Get-Item -LiteralPath $source).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw 'Source folder must not be a link.'
     }
-    $checkout = Join-Path $job 'repository'
-    git -c http.sslBackend=openssl clone --depth 1 --branch main --single-branch $repo $checkout
-    if ($LASTEXITCODE -ne 0) { throw 'Download/authentication failed. Public inventory unchanged.' }
-
-    $target = Join-Path $checkout 'docs'
-    if (Test-Path -LiteralPath $target) {
-        # Delete only docs inside this freshly created temporary checkout.
-        $resolved = (Resolve-Path -LiteralPath $target).Path
-        $expected = [IO.Path]::GetFullPath((Join-Path $checkout 'docs'))
-        if ($resolved -ine $expected -or !$resolved.StartsWith($job + '\', [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Unsafe temporary path. Stopped.'
-        }
-        if ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw 'Remote docs is a link. Stopped.'
-        }
-        Remove-Item -LiteralPath $resolved -Recurse -Force
+    $job = Join-Path ([IO.Path]::GetTempPath()) ('OnlineShopSave-' + [guid]::NewGuid().ToString('N'))
+    git -c http.sslBackend=openssl clone --depth 1 --branch main --single-branch $repo $job
+    if ($LASTEXITCODE -ne 0) { throw 'GitHub download/authentication failed.' }
+    if (Get-ChildItem -LiteralPath $job -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }) {
+        throw 'Remote checkout contains links. Upload stopped.'
     }
-    Copy-Item -LiteralPath $snapshot -Destination $target -Recurse -Force
-    git -C $checkout add -A -- docs
+    # Overlay all local project files. Remote-only files are retained.
+    Copy-Project $source $job
+    git -C $job add -A
     if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare upload.' }
-    $changed = @(git -C $checkout diff --cached --name-only)
+    $paths = @(git -C $job diff --cached --name-only)
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect upload.' }
-    if ($changed.Count -eq 0) {
-        Write-Host 'Already up to date. Nothing to upload.' -ForegroundColor Green
+    foreach ($path in $paths) {
+        if ($path -match '(^|/)(data|\.venv|venv|__pycache__)(/|$)|(^|/)\.env[^/]*$|\.py[cod]$') {
+            throw "Private/local file detected. Upload stopped: $path"
+        }
+    }
+    git -C $job diff --cached --stat
+    if ($CheckOnly) {
+        Write-Host 'Check complete. Nothing was uploaded.' -ForegroundColor Green
         return
     }
-    foreach ($path in $changed) {
-        if (!$path.StartsWith('docs/')) { throw "Unexpected change outside docs: $path" }
+    if (!$paths.Count) {
+        Write-Host 'Already up to date.' -ForegroundColor Green
+        return
     }
-    git -C $checkout -c user.name=kds892222-maker -c user.email=kds892222-maker@users.noreply.github.com commit -m 'Update customer inventory docs'
+    git -C $job -c user.name=kds892222-maker -c user.email=kds892222-maker@users.noreply.github.com commit -m 'Save complete Online-Shop project'
     if ($LASTEXITCODE -ne 0) { throw 'Commit failed.' }
-    git -C $checkout -c http.sslBackend=openssl push origin HEAD:main
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Upload failed or remote changed. Run again. No force push was used.'
-    }
-    Write-Host "Uploaded docs successfully ($count products). GitHub Pages deployment follows." -ForegroundColor Green
-    Write-Host 'https://kds892222-maker.github.io/Online-Shop/'
+    git -C $job -c http.sslBackend=openssl push origin HEAD:main
+    if ($LASTEXITCODE -ne 0) { throw 'Upload failed or remote changed. Run again; no force push was used.' }
+    Write-Host 'Project uploaded successfully.' -ForegroundColor Green
+    Write-Host 'https://github.com/kds892222-maker/Online-Shop'
 }
 catch {
     Write-Host "Stopped: $_" -ForegroundColor Red
+    if ($CheckOnly) { throw }
 }
 finally {
-    if ($job) { Write-Host "Upload snapshot retained: $job" }
+    if ($job) { Write-Host "Working copy retained: $job" }
     if ($locked) { $mutex.ReleaseMutex() }
     $mutex.Dispose()
-    Read-Host 'Press Enter to close' | Out-Null
+    if (!$CheckOnly) { Read-Host 'Press Enter to close' | Out-Null }
 }

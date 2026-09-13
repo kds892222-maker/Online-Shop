@@ -1,6 +1,10 @@
 ﻿# Windows PowerShell 5.1 / PowerShell 7
+param(
+    [string]$ShopPath = 'C:\Online-Shop',
+    [string]$PythonExecutable = ''
+)
 $ErrorActionPreference = 'Stop'
-$shop = 'C:\Online-Shop'
+$shop = [IO.Path]::GetFullPath($ShopPath).TrimEnd('\')
 $repo = 'https://github.com/kds892222-maker/Online-Shop.git'
 $mutex = [Threading.Mutex]::new($false, 'Local\OnlineShopSafeLauncher')
 $locked = $false
@@ -8,7 +12,7 @@ $env:GIT_TERMINAL_PROMPT = '0'
 $env:GCM_INTERACTIVE = 'Never'
 
 function Assert-SafeFolder {
-    if ([IO.Path]::GetFullPath($shop).TrimEnd('\') -ine 'C:\Online-Shop') {
+    if ($shop -eq [IO.Path]::GetPathRoot($shop).TrimEnd('\') -or $shop -notmatch 'Online-Shop$') {
         throw 'Unexpected installation path.'
     }
     if (Test-Path -LiteralPath $shop) {
@@ -101,7 +105,7 @@ function Start-Shop {
     Set-Location -LiteralPath $shop
     $python = Join-Path $shop '.venv\Scripts\python.exe'
     if (!(Test-Path -LiteralPath $python)) {
-        py -3 -m venv .venv
+        & $script:pythonCommand @script:pythonPrefix -m venv .venv
         if ($LASTEXITCODE -ne 0) { throw 'Python environment creation failed.' }
     }
     & $python -c 'import importlib.util, sys; sys.exit(0 if all(importlib.util.find_spec(m) for m in ["fastapi", "uvicorn"]) else 1)'
@@ -123,7 +127,19 @@ try {
     catch [Threading.AbandonedMutexException] { $locked = $true }
     if (!$locked) { throw 'The launcher is already running.' }
     Get-Command git -ErrorAction Stop | Out-Null
-    Get-Command py -ErrorAction Stop | Out-Null
+    $script:pythonPrefix = @()
+    if ($PythonExecutable) {
+        $script:pythonCommand = (Get-Command $PythonExecutable -ErrorAction Stop).Source
+    } elseif (Get-Command py -ErrorAction SilentlyContinue) {
+        $script:pythonCommand = (Get-Command py).Source
+        $script:pythonPrefix = @('-3')
+    } elseif (Test-Path (Join-Path $shop '.venv\Scripts\python.exe')) {
+        $script:pythonCommand = Join-Path $shop '.venv\Scripts\python.exe'
+    } else {
+        $script:pythonCommand = (Get-Command python -ErrorAction Stop).Source
+    }
+    & $script:pythonCommand @script:pythonPrefix -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)'
+    if ($LASTEXITCODE -ne 0) { throw 'Python 3.10+ required. Install Python or pass -PythonExecutable with its full path.' }
     Assert-SafeFolder
     Assert-ServerStopped
     if (!(Test-Path "$shop\.git")) {
